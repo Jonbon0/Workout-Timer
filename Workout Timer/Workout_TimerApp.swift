@@ -8,10 +8,11 @@
 import SwiftUI
 
 @main
-struct Workout_TimerApp: App {
+struct IntervalTimerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.dark)
         }
     }
 }
