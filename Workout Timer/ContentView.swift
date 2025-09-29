@@ -3,6 +3,7 @@ import Combine
 import AudioToolbox
 import AVFoundation
 
+
 // MARK: - Timer Model
 class TimerModel: ObservableObject {
     @Published var workTime: Int = 180 // 3 minutes in seconds
@@ -14,19 +15,102 @@ class TimerModel: ObservableObject {
     
     private var timer: AnyCancellable?
     private var audioPlayer: AVAudioPlayer?
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    
+    // Track when timer was started for background calculation
+    private var timerStartDate: Date?
+    private var lastKnownCurrentTime: Int = 180
+    
+    init() {
+        // Setup notifications for app state changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func appDidEnterBackground() {
+        if isRunning {
+            // Request background task
+            backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
+                self?.endBackgroundTask()
+            }
+        }
+    }
+    
+    @objc private func appWillEnterForeground() {
+        if isRunning {
+            updateTimerFromBackground()
+        }
+        endBackgroundTask()
+    }
+    
+    private func endBackgroundTask() {
+        if backgroundTask != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+            backgroundTask = .invalid
+        }
+    }
+    
+    private func updateTimerFromBackground() {
+        guard let startDate = timerStartDate else { return }
+        
+        let elapsedTime = Int(Date().timeIntervalSince(startDate))
+        var remainingTime = lastKnownCurrentTime - elapsedTime
+        
+        // Calculate phase changes that happened during background
+        while remainingTime <= 0 {
+            if isWorkPhase {
+                playBeepSound()
+                isWorkPhase = false
+                remainingTime += restTime
+            } else {
+                playRoundEndSound()
+                isWorkPhase = true
+                remainingTime += workTime
+                round += 1
+            }
+        }
+        
+        currentTime = remainingTime
+        lastKnownCurrentTime = remainingTime
+        timerStartDate = Date()
+    }
     
     func startTimer() {
         isRunning = true
+        timerStartDate = Date()
+        lastKnownCurrentTime = currentTime
+        
         timer = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.tick()
             }
+        
+        // Configure audio session for background playback
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Failed to set audio session category: \(error)")
+        }
     }
     
     func pauseTimer() {
         isRunning = false
         timer?.cancel()
+        timerStartDate = nil
+        endBackgroundTask()
     }
     
     func resetTimer() {
@@ -35,11 +119,15 @@ class TimerModel: ObservableObject {
         isWorkPhase = true
         currentTime = workTime
         round = 1
+        timerStartDate = nil
+        lastKnownCurrentTime = workTime
+        endBackgroundTask()
     }
     
     private func tick() {
         if currentTime > 0 {
             currentTime -= 1
+            lastKnownCurrentTime = currentTime
         } else {
             // Switch phases
             if isWorkPhase {
@@ -47,19 +135,22 @@ class TimerModel: ObservableObject {
                 playBeepSound()
                 isWorkPhase = false
                 currentTime = restTime
+                lastKnownCurrentTime = restTime
             } else {
                 // Rest phase ending - play custom sound for new round
                 playRoundEndSound()
                 isWorkPhase = true
                 currentTime = workTime
+                lastKnownCurrentTime = workTime
                 round += 1
             }
+            timerStartDate = Date()
         }
     }
     
     private func playBeepSound() {
         // Play system sound for work phase end
-        playRoundEndSound()
+        AudioServicesPlaySystemSound(1057)
         
         // Light haptic feedback for phase change
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -68,7 +159,7 @@ class TimerModel: ObservableObject {
     
     private func playRoundEndSound() {
         // Try to play custom sound first
-        if let soundURL = Bundle.main.url(forResource: "round_end", withExtension: "mp3") {
+        if let soundURL = Bundle.main.url(forResource: "round_end", withExtension: "wav") {
             do {
                 audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
                 audioPlayer?.play()
