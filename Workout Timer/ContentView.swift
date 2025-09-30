@@ -150,7 +150,7 @@ class TimerModel: ObservableObject {
     
     private func playBeepSound() {
         // Play system sound for work phase end
-        AudioServicesPlaySystemSound(1057)
+        playRoundEndSound()
         
         // Light haptic feedback for phase change
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -159,7 +159,7 @@ class TimerModel: ObservableObject {
     
     private func playRoundEndSound() {
         // Try to play custom sound first
-        if let soundURL = Bundle.main.url(forResource: "round_end", withExtension: "wav") {
+        if let soundURL = Bundle.main.url(forResource: "round_end", withExtension: "mp3") {
             do {
                 audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
                 audioPlayer?.play()
@@ -170,7 +170,7 @@ class TimerModel: ObservableObject {
             }
         } else {
             // Fallback to system sound if custom file not found
-            AudioServicesPlaySystemSound(1052) // Different system sound for rounds
+            playRoundEndSound() // Different system sound for rounds
         }
         
         // Strong haptic feedback for round completion
