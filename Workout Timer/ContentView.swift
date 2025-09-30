@@ -389,7 +389,7 @@ struct SettingsView: View {
                                 .pickerStyle(WheelPickerStyle())
                                 .frame(width: 80, height: 150)
                                 .clipped()
-                                .onChange(of: workMinutes) { _ in
+                                .onChange(of: workMinutes) {
                                     updateTimerValues()
                                 }
                             }
@@ -409,8 +409,8 @@ struct SettingsView: View {
                                 .pickerStyle(WheelPickerStyle())
                                 .frame(width: 80, height: 150)
                                 .clipped()
-                                .onChange(of: workSeconds) { _ in
-                                    updateTimerValues()
+                            .onChange(of: workSeconds){
+                                updateTimerValues()
                                 }
                             }
                         }
@@ -443,7 +443,7 @@ struct SettingsView: View {
                                 .pickerStyle(WheelPickerStyle())
                                 .frame(width: 80, height: 150)
                                 .clipped()
-                                .onChange(of: restMinutes) { _ in
+                                .onChange(of: restMinutes) {
                                     updateTimerValues()
                                 }
                             }
@@ -463,7 +463,7 @@ struct SettingsView: View {
                                 .pickerStyle(WheelPickerStyle())
                                 .frame(width: 80, height: 150)
                                 .clipped()
-                                .onChange(of: restSeconds) { _ in
+                                .onChange(of: restSeconds) {
                                     updateTimerValues()
                                 }
                             }
