@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import AudioToolbox
 import AVFoundation
+import UserNotifications
 
 
 // MARK: - Timer Model
@@ -20,8 +21,12 @@ class TimerModel: ObservableObject {
     // Track when timer was started for background calculation
     private var timerStartDate: Date?
     private var lastKnownCurrentTime: Int = 180
+    private var isAppInBackground = false
     
     init() {
+        // Request notification permissions
+        requestNotificationPermissions()
+        
         // Setup notifications for app state changes
         NotificationCenter.default.addObserver(
             self,
@@ -38,20 +43,75 @@ class TimerModel: ObservableObject {
         )
     }
     
+    private func requestNotificationPermissions() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                print("Notification permission error: \(error)")
+            }
+        }
+    }
+    
     @objc private func appDidEnterBackground() {
+        isAppInBackground = true
         if isRunning {
             // Request background task
             backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
                 self?.endBackgroundTask()
             }
+            
+            // Schedule notifications for upcoming phase changes
+            scheduleNotifications()
         }
     }
     
     @objc private func appWillEnterForeground() {
+        isAppInBackground = false
         if isRunning {
             updateTimerFromBackground()
         }
+        // Cancel all pending notifications since app is now active
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         endBackgroundTask()
+    }
+    
+    private func scheduleNotifications() {
+        // Clear any existing notifications
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        
+        var timeOffset = Double(currentTime)
+        var currentPhase = isWorkPhase
+        var currentRound = round
+        
+        // Schedule notifications for the next several phase changes
+        for i in 0..<10 {
+            let content = UNMutableNotificationContent()
+            
+            if currentPhase {
+                // Work phase is ending
+                content.title = "Work Complete!"
+                content.body = "Time to rest"
+                content.sound = .default
+            } else {
+                // Rest phase is ending - new round
+                content.title = "Round \(currentRound) Complete!"
+                content.body = "Starting Round \(currentRound + 1)"
+                content.sound = .default
+                currentRound += 1
+            }
+            
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeOffset, repeats: false)
+            let request = UNNotificationRequest(identifier: "timer-\(i)", content: content, trigger: trigger)
+            
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error = error {
+                    print("Error scheduling notification: \(error)")
+                }
+            }
+            
+            // Add time for next phase
+            timeOffset += currentPhase ? Double(restTime) : Double(workTime)
+            currentPhase.toggle()
+        }
     }
     
     private func endBackgroundTask() {
@@ -70,11 +130,11 @@ class TimerModel: ObservableObject {
         // Calculate phase changes that happened during background
         while remainingTime <= 0 {
             if isWorkPhase {
-                playBeepSound()
+                // Don't play sounds here - notifications handled it
                 isWorkPhase = false
                 remainingTime += restTime
             } else {
-                playRoundEndSound()
+                // Don't play sounds here - notifications handled it
                 isWorkPhase = true
                 remainingTime += workTime
                 round += 1
@@ -104,6 +164,11 @@ class TimerModel: ObservableObject {
         } catch {
             print("Failed to set audio session category: \(error)")
         }
+        
+        // If already in background, schedule notifications
+        if isAppInBackground {
+            scheduleNotifications()
+        }
     }
     
     func pauseTimer() {
@@ -111,6 +176,9 @@ class TimerModel: ObservableObject {
         timer?.cancel()
         timerStartDate = nil
         endBackgroundTask()
+        
+        // Cancel notifications when paused
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
     
     func resetTimer() {
@@ -122,6 +190,9 @@ class TimerModel: ObservableObject {
         timerStartDate = nil
         lastKnownCurrentTime = workTime
         endBackgroundTask()
+        
+        // Cancel notifications when reset
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
     
     private func tick() {
@@ -131,14 +202,18 @@ class TimerModel: ObservableObject {
         } else {
             // Switch phases
             if isWorkPhase {
-                // Work phase ending - play regular beep
-                playBeepSound()
+                // Work phase ending - play sound only if app is active
+                if !isAppInBackground {
+                    playBeepSound()
+                }
                 isWorkPhase = false
                 currentTime = restTime
                 lastKnownCurrentTime = restTime
             } else {
-                // Rest phase ending - play custom sound for new round
-                playRoundEndSound()
+                // Rest phase ending - play sound only if app is active
+                if !isAppInBackground {
+                    playRoundEndSound()
+                }
                 isWorkPhase = true
                 currentTime = workTime
                 lastKnownCurrentTime = workTime
@@ -170,7 +245,8 @@ class TimerModel: ObservableObject {
             }
         } else {
             // Fallback to system sound if custom file not found
-            playRoundEndSound() // Different system sound for rounds
+            playRoundEndSound()
+            // Different system sound for rounds
         }
         
         // Strong haptic feedback for round completion
@@ -409,8 +485,8 @@ struct SettingsView: View {
                                 .pickerStyle(WheelPickerStyle())
                                 .frame(width: 80, height: 150)
                                 .clipped()
-                            .onChange(of: workSeconds){
-                                updateTimerValues()
+                                .onChange(of: workSeconds) {
+                                    updateTimerValues()
                                 }
                             }
                         }
